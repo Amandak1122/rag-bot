@@ -8,6 +8,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from dotenv import load_dotenv
+import chromadb 
 import streamlit as st
 
 load_dotenv()
@@ -45,15 +46,21 @@ if uploaded_file and st.session_state.last_file != uploaded_file.name:
         chunks = splitter.split_documents(documents)
 
         embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-        vectorstore = Chroma.from_documents(chunks, embeddings)
-        retriever = vectorstore.as_retriever()
+        chunks = [c for c in chunks if c.page_content.strip()]
+        client = chromadb.EphemeralClient()
+vectorstore = Chroma.from_documents(
+      documents=chunks,
+    embedding=embeddings,
+    client=client
+)
+retriever = vectorstore.as_retriever()
 
-        llm = ChatGroq(model="llama-3.1-8b-instant")
+llm = ChatGroq(model="llama-3.1-8b-instant")
 
-        def format_docs(docs):
+def format_docs(docs):
             return "\n\n".join(doc.page_content for doc in docs)
 
-        def format_history(history):
+def format_history(history):
             formatted = ""
             for msg in history:
                 if isinstance(msg, HumanMessage):
@@ -62,7 +69,7 @@ if uploaded_file and st.session_state.last_file != uploaded_file.name:
                     formatted += f"Assistant: {msg.content}\n"
             return formatted
 
-        prompt = ChatPromptTemplate.from_template("""
+prompt = ChatPromptTemplate.from_template("""
 You are a helpful assistant. Answer the question based on the provided context and conversation history.
 If the answer is not found in the context, honestly say so.
 Always respond in {language}.
@@ -75,8 +82,7 @@ Context:
 
 Sawaal: {question}
 """)
-
-        chain = (
+chain = (
             {
                 "context": RunnableLambda(lambda x: format_docs(retriever.invoke(x["question"]))),
                 "question": RunnableLambda(lambda x: x["question"]),
@@ -92,7 +98,7 @@ Sawaal: {question}
         st.session_state.last_file = uploaded_file.name
         st.session_state.chat_history = []
 
-    st.success("PDF is ready! You can now ask your questions.")
+st.success("PDF is ready! You can now ask your questions.")
 
 # Chat UI
 if st.session_state.chain:
